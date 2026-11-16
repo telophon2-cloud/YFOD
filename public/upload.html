@@ -23,97 +23,179 @@
 <table border="1" cellpadding="8" cellspacing="0" bgcolor="#FFFFE0">
   <tr>
     <td>
-      <b>Универсальный кодек (играет ВЕЗДЕ):</b><br>
-      Формат: <b>MP4</b> | Видео: <b>H.264 Baseline Profile</b> | Звук: <b>AAC-LC</b>
+      <b>Универсальный режим:</b> Выберите любой видеофайл (MP4, WebM, AVI, MOV).<br>
+      Если нужно, браузер автоматически сожмет его в <b>WebM (VP8)</b>, который работает <b>ВЕЗДЕ</b> (включая Wine IE, старые ПК и современные браузеры).
     </td>
   </tr>
 </table>
 
 <br>
 
-<form id="uploadForm">
+<form id="up-form" onsubmit="return startProcess();">
   <table border="0" cellpadding="5">
     <tr>
       <td><b>Название ролика:</b></td>
-      <td><input type="text" id="vTitle" size="40" required></td>
+      <td><input type="text" id="v-title" size="40" required></td>
     </tr>
     <tr>
       <td><b>Ваш ник:</b></td>
-      <td><input type="text" id="vAuthor" size="40" placeholder="Аноним"></td>
+      <td><input type="text" id="v-author" size="40" placeholder="Аноним"></td>
     </tr>
     <tr>
-      <td><b>Файл (MP4, макс. 20 МБ):</b></td>
-      <td><input type="file" id="vFile" accept="video/mp4" required></td>
+      <td><b>Видеофайл (до 20 МБ):</b></td>
+      <td><input type="file" id="v-file" accept="video/*" required></td>
+    </tr>
+    <tr>
+      <td><b>Режим совместимости:</b></td>
+      <td>
+        <input type="checkbox" id="convert-webm" checked>
+        <label for="convert-webm">Сжать в универсальный WebM VP8 (чтобы играло в Wine IE и старых браузерах)</label>
+      </td>
     </tr>
     <tr>
       <td></td>
-      <td><input type="submit" id="btnSubmit" value="Опубликовать видео"></td>
+      <td><input type="submit" id="btn-submit" value="Опубликовать видео"></td>
     </tr>
   </table>
 </form>
 
-<p id="statusBox"></p>
+<p id="status"><b>Готово к загрузке.</b></p>
 
 <script>
-document.getElementById("uploadForm").onsubmit = async function(e) {
-  e.preventDefault();
-  var fileInput = document.getElementById("vFile");
-  var file = fileInput.files[0];
-  var statusBox = document.getElementById("statusBox");
-  var btn = document.getElementById("btnSubmit");
+function setStatus(txt) {
+  document.getElementById("status").innerHTML = "<b>" + txt + "</b>";
+}
 
-  if (!file) return;
+function startProcess() {
+  var fileInput = document.getElementById("v-file");
+  var file = fileInput.files;
+  var title = document.getElementById("v-title").value || "Без названия";
+  var author = document.getElementById("v-author").value || "Аноним";
+  var needConvert = document.getElementById("convert-webm").checked;
 
-  var maxBytes = 20 * 1024 * 1024;
-  if (file.size > maxBytes) {
-    statusBox.innerHTML = '<font color="#CC0000"><b>Ошибка: файл больше 20 МБ!</b></font>';
-    return;
+  if (!file) return false;
+  if (file.size > 20 * 1024 * 1024) {
+    alert("Файл больше 20 МБ!");
+    return false;
   }
 
-  var title = document.getElementById("vTitle").value || "Без названия";
-  var author = document.getElementById("vAuthor").value || "Аноним";
-  var videoId = Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+  document.getElementById("btn-submit").disabled = true;
 
-  // Режем файл на куски по 3.5 МБ, чтобы гарантированно пройти лимит Netlify (6 МБ)
-  var chunkSize = 3.5 * 1024 * 1024;
-  var totalChunks = Math.ceil(file.size / chunkSize);
+  // Если уже WebM или галочка снята, либо старый браузер без MediaRecorder — грузим как есть
+  if (!needConvert || file.type === "video/webm" || !window.MediaRecorder) {
+    uploadBlob(file, file.type || "video/mp4", title, author);
+    return false;
+  }
 
-  btn.disabled = true;
+  setStatus("Подготовка и сжатие в универсальный WebM (подождите, идет прогон ролика)...");
 
-  try {
-    for (var i = 0; i < totalChunks; i++) {
-      var start = i * chunkSize;
-      var end = Math.min(start + chunkSize, file.size);
-      var chunk = file.slice(start, end);
+  var video = document.createElement("video");
+  video.muted = false;
+  video.src = URL.createObjectURL(file);
 
-      statusBox.innerHTML = '<b>Загрузка: часть ' + (i + 1) + ' из ' + totalChunks + '...</b>';
+  video.onloadedmetadata = function() {
+    var canvas = document.createElement("canvas");
+    // Ограничиваем высоту до 360p для плавной работы на старых устройствах
+    var scale = video.videoHeight > 360 ? (360 / video.videoHeight) : 1;
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    var ctx = canvas.getContext("2d");
 
-      var url = '/upload-chunk?id=' + encodeURIComponent(videoId) +
-                '&index=' + i +
-                '&total=' + totalChunks +
-                '&title=' + encodeURIComponent(title) +
-                '&author=' + encodeURIComponent(author) +
-                '&size=' + file.size;
+    var stream = canvas.captureStream(24);
+    try {
+      var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      var source = audioCtx.createMediaElementSource(video);
+      var dest = audioCtx.createMediaStreamDestination();
+      source.connect(dest);
+      var audioTracks = dest.stream.getAudioTracks();
+      if (audioTracks.length > 0) stream.addTrack(audioTracks);
+    } catch (e) {}
 
-      var res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: chunk
-      });
+    var mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,vorbis")
+      ? "video/webm;codecs=vp8,vorbis"
+      : (MediaRecorder.isTypeSupported("video/webm;codecs=vp8") ? "video/webm;codecs=vp8" : "video/webm");
 
-      if (!res.ok) {
-        var errText = await res.text();
-        throw new Error(errText || ('HTTP ' + res.status));
+    var recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 600000 });
+    var chunks = [];
+
+    recorder.ondataavailable = function(e) {
+      if (e.data && e.data.size > 0) chunks.push(e.data);
+    };
+
+    recorder.onstop = function() {
+      var webmBlob = new Blob(chunks, { type: "video/webm" });
+      uploadBlob(webmBlob, "video/webm", title, author);
+    };
+
+    recorder.start();
+    video.play();
+
+    function drawFrame() {
+      if (video.paused || video.ended) {
+        if (recorder.state !== "inactive") recorder.stop();
+        return;
       }
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      var pct = Math.round((video.currentTime / video.duration) * 100) || 0;
+      setStatus("Конвертация в WebM для старых устройств: " + pct + "%...");
+      requestAnimationFrame(drawFrame);
+    }
+    drawFrame();
+  };
+
+  video.onerror = function() {
+    uploadBlob(file, file.type || "video/mp4", title, author);
+  };
+
+  return false;
+}
+
+function uploadBlob(blob, mimeType, title, author) {
+  var chunkSize = 3 * 1024 * 1024;
+  var totalChunks = Math.ceil(blob.size / chunkSize);
+  var uploadId = Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+  var current = 0;
+
+  function sendNext() {
+    if (current >= totalChunks) {
+      setStatus("Готово! Переход к видео...");
+      window.location.href = "/?watch=" + encodeURIComponent(uploadId);
+      return;
     }
 
-    statusBox.innerHTML = '<font color="#008000"><b>Готово! Переход к видео...</b></font>';
-    window.location.href = '/?watch=' + encodeURIComponent(videoId);
-  } catch (err) {
-    statusBox.innerHTML = '<font color="#CC0000"><b>Ошибка загрузки: ' + err.message + '</b></font>';
-    btn.disabled = false;
+    setStatus("Загрузка на сервер: часть " + (current + 1) + " из " + totalChunks + "...");
+    var start = current * chunkSize;
+    var end = Math.min(start + chunkSize, blob.size);
+    var part = blob.slice(start, end);
+
+    var fd = new FormData();
+    fd.append("uploadId", uploadId);
+    fd.append("index", current);
+    fd.append("total", totalChunks);
+    fd.append("title", title);
+    fd.append("author", author);
+    fd.append("mimeType", mimeType);
+    fd.append("totalSize", blob.size);
+    fd.append("chunk", part, "part.bin");
+
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/upload-chunk", true);
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        if (xhr.status === 200) {
+          current++;
+          sendNext();
+        } else {
+          setStatus("Ошибка загрузки (" + xhr.status + "): " + xhr.responseText);
+          document.getElementById("btn-submit").disabled = false;
+        }
+      }
+    };
+    xhr.send(fd);
   }
-};
+
+  sendNext();
+}
 </script>
 
 </body>
