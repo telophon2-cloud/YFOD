@@ -14,7 +14,6 @@ export default async (req) => {
   const url = new URL(req.url);
   const watchId = url.searchParams.get("watch");
   const query = (url.searchParams.get("q") || "").trim().toLowerCase();
-  const errorMsg = url.searchParams.get("err");
 
   const metaStore = getStore("yfod-meta");
   const { blobs } = await metaStore.list();
@@ -27,17 +26,13 @@ export default async (req) => {
   videos.sort((a, b) => b.id.localeCompare(a.id));
 
   let playerHtml = "";
-  if (errorMsg) {
-    playerHtml += `<p><font color="#CC0000"><b>Ошибка: ${escapeHtml(errorMsg)}</b></font></p><hr>`;
-  }
-
   if (watchId) {
     const current = videos.find((v) => v.id === watchId);
     if (current) {
       current.views = (current.views || 0) + 1;
       await metaStore.setJSON(watchId, current);
 
-      playerHtml += `
+      playerHtml = `
       <h2>Просмотр: ${escapeHtml(current.title)}</h2>
       <table border="1" cellpadding="4" cellspacing="0" bgcolor="#000000">
         <tr>

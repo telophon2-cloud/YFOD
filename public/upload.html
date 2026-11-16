@@ -31,26 +31,90 @@
 
 <br>
 
-<form method="POST" action="/upload" enctype="multipart/form-data">
+<form id="uploadForm">
   <table border="0" cellpadding="5">
     <tr>
       <td><b>Название ролика:</b></td>
-      <td><input type="text" name="title" size="40" required></td>
+      <td><input type="text" id="vTitle" size="40" required></td>
     </tr>
     <tr>
       <td><b>Ваш ник:</b></td>
-      <td><input type="text" name="author" size="40" placeholder="Аноним"></td>
+      <td><input type="text" id="vAuthor" size="40" placeholder="Аноним"></td>
     </tr>
     <tr>
       <td><b>Файл (MP4, макс. 20 МБ):</b></td>
-      <td><input type="file" name="video" accept="video/mp4" required></td>
+      <td><input type="file" id="vFile" accept="video/mp4" required></td>
     </tr>
     <tr>
       <td></td>
-      <td><input type="submit" value="Опубликовать видео"></td>
+      <td><input type="submit" id="btnSubmit" value="Опубликовать видео"></td>
     </tr>
   </table>
 </form>
+
+<p id="statusBox"></p>
+
+<script>
+document.getElementById("uploadForm").onsubmit = async function(e) {
+  e.preventDefault();
+  var fileInput = document.getElementById("vFile");
+  var file = fileInput.files[0];
+  var statusBox = document.getElementById("statusBox");
+  var btn = document.getElementById("btnSubmit");
+
+  if (!file) return;
+
+  var maxBytes = 20 * 1024 * 1024;
+  if (file.size > maxBytes) {
+    statusBox.innerHTML = '<font color="#CC0000"><b>Ошибка: файл больше 20 МБ!</b></font>';
+    return;
+  }
+
+  var title = document.getElementById("vTitle").value || "Без названия";
+  var author = document.getElementById("vAuthor").value || "Аноним";
+  var videoId = Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+
+  // Режем файл на куски по 3.5 МБ, чтобы гарантированно пройти лимит Netlify (6 МБ)
+  var chunkSize = 3.5 * 1024 * 1024;
+  var totalChunks = Math.ceil(file.size / chunkSize);
+
+  btn.disabled = true;
+
+  try {
+    for (var i = 0; i < totalChunks; i++) {
+      var start = i * chunkSize;
+      var end = Math.min(start + chunkSize, file.size);
+      var chunk = file.slice(start, end);
+
+      statusBox.innerHTML = '<b>Загрузка: часть ' + (i + 1) + ' из ' + totalChunks + '...</b>';
+
+      var url = '/upload-chunk?id=' + encodeURIComponent(videoId) +
+                '&index=' + i +
+                '&total=' + totalChunks +
+                '&title=' + encodeURIComponent(title) +
+                '&author=' + encodeURIComponent(author) +
+                '&size=' + file.size;
+
+      var res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: chunk
+      });
+
+      if (!res.ok) {
+        var errText = await res.text();
+        throw new Error(errText || ('HTTP ' + res.status));
+      }
+    }
+
+    statusBox.innerHTML = '<font color="#008000"><b>Готово! Переход к видео...</b></font>';
+    window.location.href = '/?watch=' + encodeURIComponent(videoId);
+  } catch (err) {
+    statusBox.innerHTML = '<font color="#CC0000"><b>Ошибка загрузки: ' + err.message + '</b></font>';
+    btn.disabled = false;
+  }
+};
+</script>
 
 </body>
 </html>

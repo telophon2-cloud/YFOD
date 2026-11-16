@@ -11,8 +11,8 @@
   status = 200
 
 [[redirects]]
-  from = "/upload"
-  to = "/.netlify/functions/upload"
+  from = "/upload-chunk"
+  to = "/.netlify/functions/upload-chunk"
   status = 200
 
 [[redirects]]
