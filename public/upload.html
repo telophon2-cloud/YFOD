@@ -23,8 +23,7 @@
 <table border="1" cellpadding="8" cellspacing="0" bgcolor="#FFFFE0">
   <tr>
     <td>
-      <b>Универсальный режим:</b> Выберите любой видеофайл (MP4, WebM, AVI, MOV).<br>
-      Если нужно, браузер автоматически сожмет его в <b>WebM (VP8)</b>, который работает <b>ВЕЗДЕ</b> (включая Wine IE, старые ПК и современные браузеры).
+      <b>Подсказка:</b> Если загружать <b>WebM (VP8)</b>, ролик играет <b>везде</b> (даже в Wine IE). Обычный <b>MP4</b> грузится мгновенно, а с галочкой ниже браузер сам перекодирует его в WebM.
     </td>
   </tr>
 </table>
@@ -48,8 +47,8 @@
     <tr>
       <td><b>Режим совместимости:</b></td>
       <td>
-        <input type="checkbox" id="convert-webm" checked>
-        <label for="convert-webm">Сжать в универсальный WebM VP8 (чтобы играло в Wine IE и старых браузерах)</label>
+        <input type="checkbox" id="convert-webm">
+        <label for="convert-webm">Перекодировать в WebM VP8 в браузере (для Wine IE, занимает время равное длине видео)</label>
       </td>
     </tr>
     <tr>
@@ -59,7 +58,7 @@
   </table>
 </form>
 
-<p id="status"><b>Готово к загрузке.</b></p>
+<p id="status"><b>Статус: ожидание выбора файла.</b></p>
 
 <script>
 function setStatus(txt) {
@@ -68,91 +67,113 @@ function setStatus(txt) {
 
 function startProcess() {
   var fileInput = document.getElementById("v-file");
+  if (!fileInput.files || fileInput.files.length === 0) {
+    alert("Выберите видеофайл!");
+    return false;
+  }
+
   var file = fileInput.files;
   var title = document.getElementById("v-title").value || "Без названия";
   var author = document.getElementById("v-author").value || "Аноним";
   var needConvert = document.getElementById("convert-webm").checked;
 
-  if (!file) return false;
   if (file.size > 20 * 1024 * 1024) {
-    alert("Файл больше 20 МБ!");
+    alert("Файл больше 20 МБ! Выберите ролик поменьше.");
     return false;
   }
 
   document.getElementById("btn-submit").disabled = true;
 
-  // Если уже WebM или галочка снята, либо старый браузер без MediaRecorder — грузим как есть
-  if (!needConvert || file.type === "video/webm" || !window.MediaRecorder) {
-    uploadBlob(file, file.type || "video/mp4", title, author);
+  var isWebm = (file.type === "video/webm") || (file.name.toLowerCase().slice(-5) === ".webm");
+  var detectedMime = isWebm ? "video/webm" : (file.type || "video/mp4");
+
+  if (!needConvert || isWebm || !window.MediaRecorder) {
+    uploadBlob(file, detectedMime, title, author);
     return false;
   }
 
-  setStatus("Подготовка и сжатие в универсальный WebM (подождите, идет прогон ролика)...");
+  setStatus("Запуск конвертации в WebM VP8...");
 
-  var video = document.createElement("video");
-  video.muted = false;
-  video.src = URL.createObjectURL(file);
+  try {
+    var video = document.createElement("video");
+    video.muted = false;
+    video.playsInline = true;
+    video.src = URL.createObjectURL(file);
 
-  video.onloadedmetadata = function() {
-    var canvas = document.createElement("canvas");
-    // Ограничиваем высоту до 360p для плавной работы на старых устройствах
-    var scale = video.videoHeight > 360 ? (360 / video.videoHeight) : 1;
-    canvas.width = Math.round(video.videoWidth * scale);
-    canvas.height = Math.round(video.videoHeight * scale);
-    var ctx = canvas.getContext("2d");
+    video.onloadedmetadata = function() {
+      var canvas = document.createElement("canvas");
+      var scale = video.videoHeight > 360 ? (360 / video.videoHeight) : 1;
+      canvas.width = Math.round(video.videoWidth * scale) || 480;
+      canvas.height = Math.round(video.videoHeight * scale) || 360;
+      var ctx = canvas.getContext("2d");
 
-    var stream = canvas.captureStream(24);
-    try {
-      var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      var source = audioCtx.createMediaElementSource(video);
-      var dest = audioCtx.createMediaStreamDestination();
-      source.connect(dest);
-      var audioTracks = dest.stream.getAudioTracks();
-      if (audioTracks.length > 0) stream.addTrack(audioTracks);
-    } catch (e) {}
+      var stream = canvas.captureStream ? canvas.captureStream(24) : canvas.mozCaptureStream(24);
+      try {
+        var AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          var audioCtx = new AudioCtx();
+          var source = audioCtx.createMediaElementSource(video);
+          var dest = audioCtx.createMediaStreamDestination();
+          source.connect(dest);
+          var audioTracks = dest.stream.getAudioTracks();
+          if (audioTracks.length > 0) stream.addTrack(audioTracks);
+        }
+      } catch (e) {}
 
-    var mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,vorbis")
-      ? "video/webm;codecs=vp8,vorbis"
-      : (MediaRecorder.isTypeSupported("video/webm;codecs=vp8") ? "video/webm;codecs=vp8" : "video/webm");
-
-    var recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 600000 });
-    var chunks = [];
-
-    recorder.ondataavailable = function(e) {
-      if (e.data && e.data.size > 0) chunks.push(e.data);
-    };
-
-    recorder.onstop = function() {
-      var webmBlob = new Blob(chunks, { type: "video/webm" });
-      uploadBlob(webmBlob, "video/webm", title, author);
-    };
-
-    recorder.start();
-    video.play();
-
-    function drawFrame() {
-      if (video.paused || video.ended) {
-        if (recorder.state !== "inactive") recorder.stop();
-        return;
+      var mime = "video/webm";
+      if (MediaRecorder.isTypeSupported("video/webm;codecs=vp8,vorbis")) {
+        mime = "video/webm;codecs=vp8,vorbis";
+      } else if (MediaRecorder.isTypeSupported("video/webm;codecs=vp8")) {
+        mime = "video/webm;codecs=vp8";
       }
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      var pct = Math.round((video.currentTime / video.duration) * 100) || 0;
-      setStatus("Конвертация в WebM для старых устройств: " + pct + "%...");
-      requestAnimationFrame(drawFrame);
-    }
-    drawFrame();
-  };
 
-  video.onerror = function() {
-    uploadBlob(file, file.type || "video/mp4", title, author);
-  };
+      var recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 500000 });
+      var chunks = [];
+
+      recorder.ondataavailable = function(e) {
+        if (e.data && e.data.size > 0) chunks.push(e.data);
+      };
+
+      recorder.onstop = function() {
+        var webmBlob = new Blob(chunks, { type: "video/webm" });
+        if (webmBlob.size === 0) {
+          uploadBlob(file, detectedMime, title, author);
+        } else {
+          uploadBlob(webmBlob, "video/webm", title, author);
+        }
+      };
+
+      recorder.start(500);
+      video.play().catch(function() {
+        // Если браузер заблокировал автоплей со звуком — грузим оригинал
+        uploadBlob(file, detectedMime, title, author);
+      });
+
+      var timer = setInterval(function() {
+        if (video.paused || video.ended) {
+          clearInterval(timer);
+          if (recorder.state !== "inactive") recorder.stop();
+          return;
+        }
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        var pct = video.duration ? Math.round((video.currentTime / video.duration) * 100) : 0;
+        setStatus("Конвертация в WebM: " + pct + "% (не закрывайте вкладку)...");
+      }, 40);
+    };
+
+    video.onerror = function() {
+      uploadBlob(file, detectedMime, title, author);
+    };
+  } catch (err) {
+    uploadBlob(file, detectedMime, title, author);
+  }
 
   return false;
 }
 
 function uploadBlob(blob, mimeType, title, author) {
   var chunkSize = 3 * 1024 * 1024;
-  var totalChunks = Math.ceil(blob.size / chunkSize);
+  var totalChunks = Math.ceil(blob.size / chunkSize) || 1;
   var uploadId = Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
   var current = 0;
 
@@ -163,7 +184,7 @@ function uploadBlob(blob, mimeType, title, author) {
       return;
     }
 
-    setStatus("Загрузка на сервер: часть " + (current + 1) + " из " + totalChunks + "...");
+    setStatus("Отправка на сервер: часть " + (current + 1) + " из " + totalChunks + "...");
     var start = current * chunkSize;
     var end = Math.min(start + chunkSize, blob.size);
     var part = blob.slice(start, end);
@@ -186,10 +207,14 @@ function uploadBlob(blob, mimeType, title, author) {
           current++;
           sendNext();
         } else {
-          setStatus("Ошибка загрузки (" + xhr.status + "): " + xhr.responseText);
+          setStatus("Ошибка сервера (" + xhr.status + "): " + xhr.responseText);
           document.getElementById("btn-submit").disabled = false;
         }
       }
+    };
+    xhr.onerror = function() {
+      setStatus("Ошибка сети при отправке.");
+      document.getElementById("btn-submit").disabled = false;
     };
     xhr.send(fd);
   }
