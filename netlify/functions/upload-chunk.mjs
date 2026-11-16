@@ -6,72 +6,67 @@ export default async (req) => {
   }
 
   try {
-    const url = new URL(req.url);
-    const id = url.searchParams.get("id");
-    const index = Number(url.searchParams.get("index"));
-    const total = Number(url.searchParams.get("total"));
-    const totalSize = Number(url.searchParams.get("size"));
-    const title = (url.searchParams.get("title") || "Без названия").slice(0, 100);
-    const author = (url.searchParams.get("author") || "Аноним").slice(0, 50);
+    const formData = await req.formData();
+    const uploadId = formData.get("uploadId");
+    const index = Number(formData.get("index"));
+    const total = Number(formData.get("total"));
+    const title = (formData.get("title") || "Без названия").toString().slice(0, 100);
+    const author = (formData.get("author") || "Аноним").toString().slice(0, 50);
+    const mimeType = (formData.get("mimeType") || "video/mp4").toString();
+    const totalSize = Number(formData.get("totalSize") || 0);
+    const chunkFile = formData.get("chunk");
 
-    if (!id || Number.isNaN(index) || Number.isNaN(total)) {
-      return new Response("Bad params", { status: 400 });
+    if (!uploadId || !chunkFile) {
+      return new Response("Неверные данные", { status: 400 });
     }
 
-    if (totalSize > 20 * 1024 * 1024) {
-      return new Response("Max 20 MB", { status: 413 });
-    }
-
-    const chunkStore = getStore("yfod-chunks");
-    const chunkBuffer = await req.arrayBuffer();
-    await chunkStore.set(`${id}_${index}`, chunkBuffer);
+    const tempStore = getStore("yfod-temp");
+    const chunkBuffer = await chunkFile.arrayBuffer();
+    await tempStore.set(`${uploadId}_${index}`, chunkBuffer);
 
     if (index === total - 1) {
       const parts = [];
-      let combinedLength = 0;
+      let fullLength = 0;
 
       for (let i = 0; i < total; i++) {
-        const part = await chunkStore.get(`${id}_${i}`, { type: "arrayBuffer" });
-        if (!part) {
-          return new Response(`Missing chunk ${i}`, { status: 500 });
+        const partBuf = await tempStore.get(`${uploadId}_${i}`, { type: "arrayBuffer" });
+        if (!partBuf) {
+          return new Response(`Не найдена часть ${i}`, { status: 500 });
         }
-        parts.push(new Uint8Array(part));
-        combinedLength += part.byteLength;
+        parts.push(new Uint8Array(partBuf));
+        fullLength += partBuf.byteLength;
+        await tempStore.delete(`${uploadId}_${i}`);
       }
 
-      const fullVideo = new Uint8Array(combinedLength);
+      const merged = new Uint8Array(fullLength);
       let offset = 0;
       for (const p of parts) {
-        fullVideo.set(p, offset);
+        merged.set(p, offset);
         offset += p.byteLength;
       }
 
       const videoStore = getStore("yfod-videos");
       const metaStore = getStore("yfod-meta");
 
-      await videoStore.set(id, fullVideo.buffer, {
-        metadata: { contentType: "video/mp4" }
+      await videoStore.set(uploadId, merged.buffer, {
+        metadata: { contentType: mimeType }
       });
 
-      await metaStore.setJSON(id, {
-        id,
+      const ext = mimeType.indexOf("webm") !== -1 ? "WEBM" : "MP4";
+      await metaStore.setJSON(uploadId, {
+        id: uploadId,
         title,
         author,
-        sizeMB: (combinedLength / (1024 * 1024)).toFixed(2),
+        format: ext,
+        mimeType,
+        sizeMB: ((totalSize || fullLength) / (1024 * 1024)).toFixed(2),
         date: new Date().toLocaleDateString("ru-RU"),
         views: 0
       });
-
-      for (let i = 0; i < total; i++) {
-        await chunkStore.delete(`${id}_${i}`);
-      }
     }
 
-    return new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" }
-    });
+    return new Response("OK", { status: 200 });
   } catch (err) {
-    return new Response(err.message, { status: 500 });
+    return new Response("Ошибка сервера: " + err.message, { status: 500 });
   }
 };
