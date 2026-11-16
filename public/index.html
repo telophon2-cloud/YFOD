@@ -1,50 +1,3 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8">
-  <title>Youtube For Old Devices - YFOD</title>
-</head>
-<body bgcolor="#FFFFFF" text="#000000" link="#0000CC" vlink="#551A8B">
-
-<table width="100%" border="1" cellpadding="8" cellspacing="0" bgcolor="#CC181E">
-  <tr>
-    <td>
-      <font color="#FFFFFF" size="5"><b>YFOD — Youtube For Old Devices</b></font><br>
-      <font color="#FFDDDD" size="2">Видеохостинг для старых устройств. Без CSS.</font>
-    </td>
-  </tr>
-</table>
-
-<br>
-
-<table width="100%" border="0" cellpadding="4" cellspacing="0">
-  <tr>
-    <td>
-      <a href="/"><b>[ Главная ]</b></a> &nbsp;|&nbsp;
-      <a href="/upload.html"><b>[ + Загрузить видео (до 20 МБ) ]</b></a>
-    </td>
-    <td align="right">
-      <form method="GET" action="/">
-        <input type="text" id="search-input" name="q" placeholder="Поиск видео...">
-        <input type="button" value="Найти" onclick="renderList()">
-      </form>
-    </td>
-  </tr>
-</table>
-
-<hr>
-
-<div id="player-area"></div>
-
-<h2>Новые видео</h2>
-<div id="video-list">Загрузка списка видео...</div>
-
-<br>
-<hr>
-<center>
-  <font size="2" color="#666666">Youtube For Old Devices (YFOD) — легкий HTML без CSS.</font>
-</center>
-
 <script>
 var allVideos = [];
 
@@ -64,20 +17,22 @@ function showPlayer(id) {
   }
   if (!v) return;
 
+  var streamUrl = "/api/stream?id=" + encodeURIComponent(v.id);
   var html = '<h2>Просмотр: ' + esc(v.title) + '</h2>' +
     '<table border="1" cellpadding="4" cellspacing="0" bgcolor="#000000"><tr><td>' +
     '<video width="480" height="360" controls controlsList="nodownload" preload="metadata">' +
-    '<source src="/api/stream?id=' + encodeURIComponent(v.id) + '" type="video/mp4">' +
-    'Ваш браузер не поддерживает HTML5 video.</video></td></tr></table>' +
+    '<source src="' + streamUrl + '" type="video/mp4">' +
+    '<embed src="' + streamUrl + '" width="480" height="360" autostart="true" showcontrols="true">' +
+    '</video></td></tr></table>' +
     '<p><b>Автор:</b> ' + esc(v.author) + ' | <b>Просмотров:</b> ' + (v.views + 1) +
     ' | <b>Дата:</b> ' + esc(v.date) + ' | <b>Размер:</b> ' + esc(v.sizeMB) + ' МБ</p>' +
     '<p><a href="/">[ Закрыть плеер ]</a></p><hr>';
 
   document.getElementById("player-area").innerHTML = html;
 
-  var xhr = new XMLHttpRequest();
-  xhr.open("GET", "/api/videos?view=" + encodeURIComponent(id), true);
-  xhr.send();
+  var x = window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject("Microsoft.XMLHTTP");
+  x.open("GET", "/api/videos?view=" + encodeURIComponent(id) + "&t=" + new Date().getTime(), true);
+  x.send();
 }
 
 function renderList() {
@@ -112,12 +67,12 @@ function renderList() {
   box.innerHTML = h;
 }
 
-var req = new XMLHttpRequest();
-req.open("GET", "/api/videos", true);
+var req = window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject("Microsoft.XMLHTTP");
+req.open("GET", "/api/videos?t=" + new Date().getTime(), true);
 req.onreadystatechange = function() {
   if (req.readyState === 4) {
     if (req.status === 200) {
-      allVideos = JSON.parse(req.responseText);
+      allVideos = window.JSON ? JSON.parse(req.responseText) : eval("(" + req.responseText + ")");
       var qParam = getParam("q");
       if (qParam) document.getElementById("search-input").value = qParam;
       renderList();
@@ -130,6 +85,3 @@ req.onreadystatechange = function() {
 };
 req.send();
 </script>
-
-</body>
-</html>
