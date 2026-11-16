@@ -3,13 +3,11 @@ import { getStore } from "@netlify/blobs";
 export default async (req) => {
   const url = new URL(req.url);
   const id = url.searchParams.get("id");
-
   if (!id) return new Response("No ID", { status: 400 });
 
   const videoStore = getStore("yfod-videos");
   const blob = await videoStore.get(id, { type: "arrayBuffer" });
-
-  if (!blob) return new Response("Not found", { status: 404 });
+  if (!blob) return new Response("Not Found", { status: 404 });
 
   const totalSize = blob.byteLength;
   const range = req.headers.get("range");
