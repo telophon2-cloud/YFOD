@@ -1,0 +1,21 @@
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+
+[functions]
+  included_files = ["public/*.html"]
+
+[[redirects]]
+  from = "/"
+  to = "/.netlify/functions/app"
+  status = 200
+
+[[redirects]]
+  from = "/upload"
+  to = "/.netlify/functions/upload"
+  status = 200
+
+[[redirects]]
+  from = "/stream"
+  to = "/.netlify/functions/stream"
+  status = 200

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Загрузить видео — YFOD</title>
+</head>
+<body bgcolor="#FFFFFF" text="#000000" link="#0000CC" vlink="#551A8B">
+
+<table width="100%" border="1" cellpadding="8" cellspacing="0" bgcolor="#CC181E">
+  <tr>
+    <td>
+      <font color="#FFFFFF" size="5"><b>YFOD — Youtube For Old Devices</b></font>
+    </td>
+  </tr>
+</table>
+
+<br>
+<a href="/"><b>[ &larr; Вернуться на главную ]</b></a>
+<hr>
+
+<h2>Загрузка нового видео (до 20 МБ)</h2>
+
+<table border="1" cellpadding="8" cellspacing="0" bgcolor="#FFFFE0">
+  <tr>
+    <td>
+      <b>Универсальный кодек (играет ВЕЗДЕ):</b><br>
+      Формат: <b>MP4</b> | Видео: <b>H.264 Baseline Profile</b> | Звук: <b>AAC-LC</b>
+    </td>
+  </tr>
+</table>
+
+<br>
+
+<form method="POST" action="/upload" enctype="multipart/form-data">
+  <table border="0" cellpadding="5">
+    <tr>
+      <td><b>Название ролика:</b></td>
+      <td><input type="text" name="title" size="40" required></td>
+    </tr>
+    <tr>
+      <td><b>Ваш ник:</b></td>
+      <td><input type="text" name="author" size="40" placeholder="Аноним"></td>
+    </tr>
+    <tr>
+      <td><b>Файл (MP4, макс. 20 МБ):</b></td>
+      <td><input type="file" name="video" accept="video/mp4" required></td>
+    </tr>
+    <tr>
+      <td></td>
+      <td><input type="submit" value="Опубликовать видео"></td>
+    </tr>
+  </table>
+</form>
+
+</body>
+</html>
